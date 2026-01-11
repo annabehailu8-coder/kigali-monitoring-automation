@@ -53,4 +53,4 @@ if latest_image.getInfo():
     
     print("Ready to export. To run the export, execute: task.start()")
 else:
-    print("No images found in the specified date range.") "Add sync script"
+    print("No images found in the specified date range.")
