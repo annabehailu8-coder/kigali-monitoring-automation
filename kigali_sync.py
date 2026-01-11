@@ -1,11 +1,21 @@
 import ee
-import geemap
-import datetime
+import os
+import json
 
-# 1. Initialize Earth Engine
-# Replace with your actual project ID from the screenshots
-PROJECT_ID = 'kigali-nrt-lulc-detection-tool'
-ee.Initialize(project=PROJECT_ID)
+# 1. Access the "Robot Key" from GitHub Secrets
+key_json = os.environ.get('GEE_JSON_KEY')
+
+if not key_json:
+    raise ValueError("ERROR: GEE_JSON_KEY not found. Check your GitHub Secrets!")
+
+# 2. Setup the login credentials
+key_dict = json.loads(key_json)
+credentials = ee.ServiceAccountCredentials(key_dict['client_email'], key_data=key_json)
+
+# 3. Initialize with your specific Project ID
+ee.Initialize(credentials, project='kigali-nrt-lulc-detection-tool')
+
+print("Successfully logged in as the Service Account!")
 
 # 2. Define Kigali Area of Interest (AOI)
 # Using the asset we verified is working in your GEE account
