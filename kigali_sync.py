@@ -2,21 +2,20 @@ import ee
 import os
 import json
 
-# 1. Access the "Robot Key" from GitHub Secrets
+# 1. Fetch the secret key from the GitHub environment
 key_json = os.environ.get('GEE_JSON_KEY')
-
 if not key_json:
     raise ValueError("ERROR: GEE_JSON_KEY not found. Check your GitHub Secrets!")
 
-# 2. Setup the login credentials
+# 2. Setup credentials
 key_dict = json.loads(key_json)
 credentials = ee.ServiceAccountCredentials(key_dict['client_email'], key_data=key_json)
 
-# 3. Initialize with your specific Project ID
-# Force the project to be the quota project
-ee.Initialize(credentials, project='kigali-nrt-lulc-detection-tool', drive_api_key=None)
+# 3. Initialize with ONLY the project ID
+# If this fails with 403, the issue is definitely in the Google Cloud Settings
+ee.Initialize(credentials, project='kigali-nrt-lulc-detection-tool')
 
-print("Successfully logged in as the Service Account!")
+print("Successfully logged in!")
 
 # 2. Define Kigali Area of Interest (AOI)
 # Using the asset we verified is working in your GEE account
