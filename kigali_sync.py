@@ -13,7 +13,8 @@ key_dict = json.loads(key_json)
 credentials = ee.ServiceAccountCredentials(key_dict['client_email'], key_data=key_json)
 
 # 3. Initialize with your specific Project ID
-ee.Initialize(credentials, project='778474051722')
+# Force the project to be the quota project
+ee.Initialize(credentials, project='kigali-nrt-lulc-detection-tool', drive_api_key=None)
 
 print("Successfully logged in as the Service Account!")
 
