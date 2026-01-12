@@ -12,7 +12,7 @@ key_dict = json.loads(key_json)
 credentials = ee.ServiceAccountCredentials(key_dict['client_email'], key_data=key_json)
 
 # Initialize with an explicit project ID to avoid 'USER_PROJECT_DENIED'
-ee.Initialize(credentials, project='778474051722')
+ee.Initialize(credentials)
 
 print("Successfully logged in!")
 
