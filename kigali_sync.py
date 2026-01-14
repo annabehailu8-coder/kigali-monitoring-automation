@@ -12,7 +12,7 @@ key_dict = json.loads(key_json)
 credentials = ee.ServiceAccountCredentials(key_dict['client_email'], key_data=key_json)
 
 # Initialize with an explicit project ID to avoid 'USER_PROJECT_DENIED'
-ee.Initialize(credentials)
+ee.Initialize(credentials, project='kigali-sync-final')
 
 print("Successfully logged in!")
 
