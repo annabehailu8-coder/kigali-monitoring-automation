@@ -14,13 +14,6 @@ def initialize_gee():
         if not key_json:
             print("❌ ERROR: GEE_JSON_KEY not found in environment.")
             return False
-            
-# Filter for Kigali's administrative boundary (Level 2 is districts)
-kigali_roi = ee.FeatureCollection("FAO/GAUL/2015/level2") \
-    .filter(ee.Filter.eq('ADM2_NAME', 'Kigali'))
-
-# Create a simplified outline for faster processing
-roi_geometry = kigali_roi.geometry()
 
         # 2. Parse the JSON to get the service account email
         key_dict = json.loads(key_json)
