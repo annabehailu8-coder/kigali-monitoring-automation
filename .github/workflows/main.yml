@@ -1,43 +1,55 @@
-name: Kigali GEE Automation
+name: Kigali Urban Monitoring
 
 on:
-  # Allows you to run this manually from the Actions tab
-  workflow_dispatch:
-  
-  # Optional: Uncomment below to run automatically every night at midnight UTC
-  # schedule:
-  #   - cron: '0 0 * * *'
+  schedule:
+    # Runs at 00:00 UTC every day
+    - cron: '0 0 * * *'
+  workflow_dispatch: # Allows you to run it manually for testing
+
+permissions:
+  contents: write # Crucial for allowing the bot to push the .txt file back
 
 jobs:
-  run-sync:
+  build:
     runs-on: ubuntu-latest
-    
+
     steps:
-      # 1. Download your code from GitHub onto the runner
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # 2. Install Python 3.11 (avoids the 3.10 deprecation warning)
-      - name: Set up Python
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      # 3. Install the Earth Engine library
-      - name: Install dependencies
+      - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install earthengine-api
 
-      # 4. Run the script
-      - name: Run Kigali Sync
+      - name: Run Monitoring Script
         env:
-          # This maps your GitHub Secret to an Environment Variable
+          # This pulls your JSON key from GitHub Secrets
           GEE_JSON_KEY: ${{ secrets.GEE_JSON_KEY }}
         run: python kigali_sync.py
-      - name: Commit and Push if ID changed
+
+      - name: Sync State File Back to Repo
         run: |
-          git config --global user.name "Kigali-Bot"
-          git config --global user.email "bot@github.com"
-          git add last_image_id.txt
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Update last processed image ID" && git push)
+          # Configure Git
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Check if the state file exists before adding
+          if [ -f last_image_id.txt ]; then
+            git add last_image_id.txt
+            
+            # Only commit if the ID actually changed
+            if git diff --staged --quiet; then
+              echo "✅ No new imagery detected; state file unchanged."
+            else
+              git commit -m "Update last processed image ID [skip ci]"
+              git push
+            fi
+          else
+            echo "⚠️ last_image_id.txt not found. Likely the script skipped or failed."
+          fi
