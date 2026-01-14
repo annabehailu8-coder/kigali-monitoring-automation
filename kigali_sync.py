@@ -12,7 +12,7 @@ def initialize_gee():
             return False
 
         key_dict = json.loads(key_json)
-           service_account = key_dict.get('client_email')
+        service_account = key_dict.get('client_email')
         
         if not service_account:
             print("❌ ERROR: Could not find 'client_email' in the JSON key.")
