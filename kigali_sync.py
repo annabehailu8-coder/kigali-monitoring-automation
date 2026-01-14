@@ -22,7 +22,7 @@ def initialize_gee():
         
         # Initialize with your Project ID
         project_id = 'kigali-sync-final' 
-         ee.Initialize(credentials, project=project_id)
+        ee.Initialize(credentials, project=project_id)
         
         print(f"✅ Successfully initialized GEE with project: {project_id}")
         return True
