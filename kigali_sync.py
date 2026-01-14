@@ -32,8 +32,7 @@ def initialize_gee():
         return False
 
 def main():
-    if initialize_gee():
-        
+    if initialize_gee():  
     """Main logic using a CUSTOM SHAPEFILE."""
     
     # 1. DEFINE CUSTOM ROI FROM ASSETS
