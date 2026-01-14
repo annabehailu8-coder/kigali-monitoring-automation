@@ -17,6 +17,9 @@ def initialize_gee():
         if not service_account:
             print("❌ ERROR: Could not find 'client_email' in the JSON key.")
             return False
+    except Exception as e:
+        print(f"❌ Failed to initialize Earth Engine: {e}")
+        return False
 def run_analysis():
     # ... (all your GEE logic, ROI, and area calculation) ...
     print("Analysis running...")
