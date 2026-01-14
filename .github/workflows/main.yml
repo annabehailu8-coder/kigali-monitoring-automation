@@ -1,1 +1,37 @@
+name: Kigali GEE Automation
 
+on:
+  # Allows you to run this manually from the Actions tab
+  workflow_dispatch:
+  
+  # Optional: Uncomment below to run automatically every night at midnight UTC
+  # schedule:
+  #   - cron: '0 0 * * *'
+
+jobs:
+  run-sync:
+    runs-on: ubuntu-latest
+    
+    steps:
+      # 1. Download your code from GitHub onto the runner
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Install Python 3.11 (avoids the 3.10 deprecation warning)
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # 3. Install the Earth Engine library
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install earthengine-api
+
+      # 4. Run the script
+      - name: Run Kigali Sync
+        env:
+          # This maps your GitHub Secret to an Environment Variable
+          GEE_JSON_KEY: ${{ secrets.GEE_JSON_KEY }}
+        run: python kigali_sync.py
