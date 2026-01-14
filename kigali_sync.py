@@ -12,13 +12,17 @@ def initialize_gee():
             return False
 
         key_dict = json.loads(key_json)
-        service_account = key_dict.get('client_email')
+        # Line 27 below - Ensure it has exactly 8 spaces of indentation
+        credentials = ee.ServiceAccountCredentials(
+            key_dict['client_email'], 
+            key_data=key_json
+        )
         
-        if not service_account:
-            print("❌ ERROR: Could not find 'client_email' in the JSON key.")
-            return False
+        ee.Initialize(credentials, project=key_dict['project_id'])
+        print(f"✅ GEE Initialized. Project: {key_dict['project_id']}")
+        return True
     except Exception as e:
-        print(f"❌ Failed to initialize Earth Engine: {e}")
+        print(f"❌ Initialization failed: {e}")
         return False
 def run_analysis():
     # ... (all your GEE logic, ROI, and area calculation) ...
