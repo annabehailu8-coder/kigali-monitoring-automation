@@ -2,64 +2,56 @@ import ee
 import os
 import json
 
-# 1. Fetch the secret key from the GitHub environment
-key_json = os.environ.get('GEE_JSON_KEY')
-if not key_json:
-    raise ValueError("ERROR: GEE_JSON_KEY not found. Check your GitHub Secrets!")
+def initialize_gee():
+    """
+    Authenticates and initializes Earth Engine using a Service Account.
+    Expects GEE_JSON_KEY as a GitHub secret containing the full JSON key.
+    """
+    try:
+        # 1. Load the Service Account key from environment variables
+        key_json = os.environ.get('GEE_JSON_KEY')
+        
+        if not key_json:
+            print("❌ ERROR: GEE_JSON_KEY not found in environment.")
+            return False
 
-# 2. Setup credentials
-key_dict = json.loads(key_json)
-credentials = ee.ServiceAccountCredentials(key_dict['client_email'], key_data=key_json)
+        # 2. Parse the JSON to get the service account email
+        key_dict = json.loads(key_json)
+        service_account = key_dict.get('client_email')
+        
+        if not service_account:
+            print("❌ ERROR: Could not find 'client_email' in the JSON key.")
+            return False
 
-# Initialize with an explicit project ID to avoid 'USER_PROJECT_DENIED'
-ee.Initialize(credentials, project='kigali-sync-final')
+        # 3. Create credentials object
+        # Note: We pass the JSON string directly to key_data
+        credentials = ee.ServiceAccountCredentials(service_account, key_data=key_json)
 
-print("Successfully logged in!")
+        # 4. Initialize with your NEW project ID
+        # REPLACE 'kigali-sync-final' with your actual new project ID
+        project_id = 'kigali-sync-final' 
+        
+        ee.Initialize(credentials, project=project_id)
+        
+        print(f"✅ Successfully initialized GEE with project: {project_id}")
+        return True
 
-# 2. Define Kigali Area of Interest (AOI)
-# Using the asset we verified is working in your GEE account
-kigali_aoi = ee.FeatureCollection(f"projects/kigali-nrt-lulc-detection-tool/assets/KIgali_City").geometry()
+    except Exception as e:
+        print(f"❌ Failed to initialize Earth Engine: {e}")
+        return False
 
-# 3. Access Sentinel-2 Collection
-# Look for images from the last 30 days to ensure we find data
-start_date = (datetime.datetime.now() - datetime.timedelta(days=30)).strftime('%Y-%m-%d')
-end_date = datetime.datetime.now().strftime('%Y-%m-%d')
+def main():
+    if initialize_gee():
+        # --- YOUR KIGALI SYNC LOGIC STARTS HERE ---
+        print("Starting Kigali monitoring sync...")
+        
+        # Example: Test the connection by getting info about a simple object
+        test_point = ee.Geometry.Point([30.06, -1.94]) # Kigali coordinates
+        print(f"Connection test successful. Point created: {test_point.getInfo()}")
+        
+        # --- END OF YOUR LOGIC ---
+    else:
+        exit(1) # Exit with error code for GitHub Actions
 
-s2_collection = (ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
-    .filterBounds(kigali_aoi)
-    .filterDate(start_date, end_date)
-    .sort('CLOUDY_PIXEL_PERCENTAGE'))
-
-# 4. Get the latest image
-latest_image = s2_collection.first()
-
-# 5. Check if image exists and visualize
-if latest_image.getInfo():
-    print(f"Latest Image ID: {latest_image.get('system:index').getInfo()}")
-    
-    # Create an interactive map
-    Map = geemap.Map()
-    Map.centerObject(kigali_aoi, 12)
-    
-    # Define visualization parameters
-    viz_params = {'bands': ['B4', 'B3', 'B2'], 'min': 0, 'max': 3000}
-    
-    Map.addLayer(latest_image, viz_params, 'Latest Sentinel-2')
-    Map.addLayer(kigali_aoi, {'color': 'red'}, 'Kigali Boundary', False)
-    
-    display(Map)
-    
-    # 6. Prepare Export (M2M style)
-    # In Python, this creates the task and starts it immediately if you uncomment .start()
-    task = ee.batch.Export.image.toDrive(
-        image=latest_image.select(['B4', 'B3', 'B2', 'B8']),
-        description='Kigali_Export_Local_Python',
-        folder='GEE_Python_Outputs',
-        region=kigali_aoi.getInfo()['coordinates'],
-        scale=10,
-        crs='EPSG:4326'
-    )
-    
-    print("Ready to export. To run the export, execute: task.start()")
-else:
-    print("No images found in the specified date range.")
+if __name__ == "__main__":
+    main()
