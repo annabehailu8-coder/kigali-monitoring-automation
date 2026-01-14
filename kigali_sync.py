@@ -73,7 +73,7 @@ def run_analysis():
         # 4. Filter Logic (Sentinel-2 Optical)
         # We check the last 5 days specifically for the composite
         now = datetime.datetime.now()
-        start_date = (now - datetime.timedelta(days=5)).strftime('%Y-%m-%d')
+        start_date = (now - datetime.timedelta(days=30)).strftime('%Y-%m-%d')
         end_date = now.strftime('%Y-%m-%d')
 
         s2_filtered = s2_collection.filterDate(start_date, end_date) \
