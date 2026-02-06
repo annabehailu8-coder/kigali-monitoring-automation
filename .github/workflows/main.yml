@@ -30,12 +30,10 @@ jobs:
           GEE_JSON_KEY: ${{ secrets.GEE_JSON_KEY }}
         run: python kigali_sync.py
 
-      - name: Commit Delta Update
+      - name: Commit and push changes
         run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          # Adding a 'git pull' ensures the script has the latest version before pushing
-          git pull origin main 
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add last_image_id.txt
-          git commit -m "Update last processed image ID" || exit 0
+          git commit -m "Update last image ID [skip ci]" || echo "No changes to commit"
           git push
