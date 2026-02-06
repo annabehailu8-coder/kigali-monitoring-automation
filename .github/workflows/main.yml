@@ -32,3 +32,4 @@ jobs:
           git add last_image_id.txt
           git commit -m "Update last processed image ID" || exit 0
           git push
+ 
