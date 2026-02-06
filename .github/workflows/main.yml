@@ -1,13 +1,17 @@
-[cite_start]name: Kigali GEE Automation [cite: 828]
+name: Kigali GEE Automation
 
 on:
   schedule:
-    - [cite_start]cron: '0 0 */5 * *'  # Runs every 5 days [cite: 466]
-  [cite_start]workflow_dispatch:      # Allows manual trigger [cite: 829]
+    - cron: '0 0 */5 * *'  # Runs every 5 days at midnight
+  workflow_dispatch:      # Allows you to click the 'Run' button manually
 
 jobs:
   build:
-    [cite_start]runs-on: ubuntu-latest [cite: 831]
+    runs-on: ubuntu-latest
+    # Added Permissions to allow the script to save the 'last_image_id.txt'
+    permissions:
+      contents: write 
+      
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v3
@@ -18,18 +22,20 @@ jobs:
           python-version: '3.9'
 
       - name: Install Dependencies
-        run: pip install earthengine-api
+        run: |
+          pip install earthengine-api google-auth
 
       - name: Run Monitoring Script
         env:
-          [cite_start]GEE_JSON_KEY: ${{ secrets.GEE_JSON_KEY }} [cite: 818]
-        [cite_start]run: python kigali_sync.py [cite: 824]
+          GEE_JSON_KEY: ${{ secrets.GEE_JSON_KEY }}
+        run: python kigali_sync.py
 
-      - [cite_start]name: Commit Delta Update [cite: 881]
+      - name: Commit Delta Update
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
+          # Adding a 'git pull' ensures the script has the latest version before pushing
+          git pull origin main 
           git add last_image_id.txt
           git commit -m "Update last processed image ID" || exit 0
           git push
- 
