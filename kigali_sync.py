@@ -21,7 +21,7 @@ if os.path.exists(state_file):
 # 4. Fetch Latest Sentinel-2 (Optical) [cite: 854, 855]
 s2_collection = (ee.ImageCollection("COPERNICUS/S2_HARMONIZED")
                  .filterBounds(kigali_aoi)
-                 .filterDate(ee.Date(ee.Date.now().advance(-5, 'day')), ee.Date.now())
+                 .filterDate(ee.Date(ee.Date.now().advance(-30, 'day')), ee.Date.now())
                  .sort('system:time_start', False))
 
 latest_image = s2_collection.first()
