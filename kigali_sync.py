@@ -17,7 +17,7 @@ def run_monitoring():
 
     # 2. Define Area of Interest (Kigali) 
     # Ensure this Asset ID matches your 'Step 8' upload [cite: 401]
-    kigali_aoi = ee.FeatureCollection("projects/kigali-sync-final/assets/KIgali_City")
+    kigali_aoi = ee.FeatureCollection("projects/kigali-sync-final/assets/kigali_boundary_custom")
 
     # 3. Delta Check: Read last processed ID [cite: 413]
     state_file = 'last_image_id.txt'
