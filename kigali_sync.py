@@ -4,17 +4,18 @@ import json
 from datetime import datetime, timedelta
 
 def run_monitoring():
-    # 1. Auth
+    # --- BLOCK 1: AUTHENTICATION (Keep this!) ---
     try:
         gee_json_key = json.loads(os.environ['GEE_JSON_KEY'])
         credentials = ee.ServiceAccountCredentials(gee_json_key['client_email'], 
                                                   key_data=os.environ['GEE_JSON_KEY'])
         ee.Initialize(credentials)
+        print("Authenticated successfully.")
     except Exception as e:
         print(f"Auth Error: {e}")
         return
 
-    # 2. Asset & Delta Check
+    # --- BLOCK 2: ASSET & DELTA CHECK ---
     asset_id = "projects/kigali-sync-final/assets/kigali_boundary_custom"
     kigali_aoi = ee.FeatureCollection(asset_id)
     
@@ -24,30 +25,54 @@ def run_monitoring():
         with open(state_file, 'r') as f:
             last_id = f.read().strip()
 
-    # 3. Filtering
-    start_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
-    end_date = datetime.now().strftime('%Y-%m-%d')
+    # --- BLOCK 3: MULTI-SENSOR FUSION LOGIC ---
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=30) 
     
-    latest_image = (ee.ImageCollection("COPERNICUS/S2_HARMONIZED")
-                    .filterBounds(kigali_aoi)
-                    .filterDate(start_date, end_date)
-                    .sort('system:time_start', False)
-                    .first())
-
-    # 4. Logical Export
-    if latest_image.getInfo():
-        current_id = latest_image.id().getInfo()
+    # A. Get Latest Sentinel-2 (Optical)
+    s2_col = (ee.ImageCollection("COPERNICUS/S2_HARMONIZED")
+              .filterBounds(kigali_aoi)
+              .filterDate(start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'))
+              .sort('system:time_start', False))
+    
+    latest_s2 = s2_col.first()
+    
+    if latest_s2.getInfo():
+        current_id = latest_s2.id().getInfo()
         
         if current_id != last_id:
-            print(f"Exporting New Image: {current_id}")
+            print(f"Processing New Change Detection for: {current_id}")
             
-            # Use 'description' without slashes to avoid file-system errors
-            clean_name = f"Kigali_{datetime.now().strftime('%Y%m%d')}"
+            # 1. SAR Radar Baseline (Sentinel-1)
+            sar_baseline = (ee.ImageCollection('COPERNICUS/S1_GRD')
+                            .filterBounds(kigali_aoi)
+                            .filterDate('2023-01-01', '2023-12-31')
+                            .median())
             
+            # 2. Current SAR Radar
+            current_sar = (ee.ImageCollection('COPERNICUS/S1_GRD')
+                           .filterBounds(kigali_aoi)
+                           .sort('system:time_start', False)
+                           .first())
+            
+            # 3. Detection: SAR Brightness Increase (New Buildings)
+            sar_diff = current_sar.select('VV').subtract(sar_baseline.select('VV'))
+            sar_alerts = sar_diff.gt(5) # Threshold for construction
+            
+            # 4. Detection: NDVI Loss (Land Clearing)
+            ndvi_latest = latest_s2.normalizedDifference(['B8', 'B4'])
+            # We simplify here: comparing current NDVI to a fixed 'Green' threshold
+            ndvi_alerts = ndvi_latest.lt(0.3) 
+            
+            # 5. FUSION: Confirmed Construction in Wetlands/Agri
+            # Only flag if both sensors agree (SAR Brightness UP + NDVI DOWN)
+            confirmed_alerts = sar_alerts.And(ndvi_alerts).selfMask()
+
+            # --- BLOCK 4: EXPORT THE RESULTS ---
             task = ee.batch.Export.image.toDrive(
-                image=latest_image.select(['B4', 'B3', 'B2']),
-                description=clean_name,
-                folder='Kigali_Monitoring_Data', # MUST EXIST IN YOUR DRIVE
+                image=confirmed_alerts, # We export the 'Alert Map', not the raw photo
+                description=f'Alert_Map_{datetime.now().strftime("%Y%m%d")}',
+                folder='Kigali_Monitoring_Data',
                 scale=10,
                 region=kigali_aoi.geometry().bounds(),
                 fileFormat='GeoTIFF'
@@ -56,11 +81,11 @@ def run_monitoring():
             
             with open(state_file, 'w') as f:
                 f.write(current_id)
-            print("Task submitted. Please check your Shared Folder in Drive.")
+            print("Fusion Task Started. Check your Drive for the Alert Map.")
         else:
-            print("Already processed this image.")
+            print("No new imagery to analyze.")
     else:
-        print("No image found.")
+        print("No images found.")
 
 if __name__ == "__main__":
     run_monitoring()
