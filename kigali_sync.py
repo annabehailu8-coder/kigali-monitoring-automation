@@ -4,7 +4,7 @@ import json
 from datetime import datetime, timedelta
 
 def run_monitoring():
-    # --- AUTHENTICATION ---
+    # 1. Auth with Error Handling
     try:
         gee_json_key = json.loads(os.environ['GEE_JSON_KEY'])
         credentials = ee.ServiceAccountCredentials(gee_json_key['client_email'], 
@@ -15,42 +15,66 @@ def run_monitoring():
         print(f"Auth Error: {e}")
         return
 
-    # --- ASSET LOADING ---
+    # 2. Setup Assets
     asset_id = "projects/kigali-sync-final/assets/kigali_boundary_custom"
     kigali_aoi = ee.FeatureCollection(asset_id)
+    
+    state_file = 'last_image_id.txt'
+    last_id = ""
+    if os.path.exists(state_file):
+        with open(state_file, 'r') as f:
+            last_id = f.read().strip()
 
-    # --- MULTI-SENSOR FUSION LOGIC (WORK #2) ---
-    # 1. Baseline: Previous year's Median
-    sar_baseline = ee.ImageCollection('COPERNICUS/S1_GRD').filterBounds(kigali_aoi).filterDate('2024-01-01', '2024-12-31').median()
+    # 3. Detection Logic (Work #2)
+    now = datetime.now()
+    s2_col = (ee.ImageCollection("COPERNICUS/S2_HARMONIZED")
+              .filterBounds(kigali_aoi)
+              .filterDate((now - timedelta(days=30)).strftime('%Y-%m-%d'), now.strftime('%Y-%m-%d'))
+              .sort('system:time_start', False))
     
-    # 2. Latest Data (Radar & Optical)
-    current_sar = ee.ImageCollection('COPERNICUS/S1_GRD').filterBounds(kigali_aoi).sort('system:time_start', False).first()
+    latest_img = s2_col.first()
     
-    # 3. Work #3 Logic: AI-Style Thresholding
-    # Detect increase in radar brightness (New structures)
-    sar_diff = current_sar.select('VV').subtract(sar_baseline.select('VV'))
-    sar_alerts = sar_diff.gt(5) # Threshold: 5dB change [cite: 514]
-    
-    # 4. Filter Noise (Speckle Reduction)
-    # Applying a simple focal mean to act as a noise filter [cite: 514, 735]
-    cleaned_alerts = sar_alerts.focal_mode(radius=10, units='meters').selfMask()
+    if latest_img.getInfo():
+        current_id = latest_img.id().getInfo()
+        
+        if current_id != last_id:
+            print(f"New Image Detected: {current_id}. Running Fusion...")
+            
+            # SAR Radar Check
+            sar_baseline = ee.ImageCollection('COPERNICUS/S1_GRD').filterBounds(kigali_aoi).filterDate('2024-01-01', '2024-12-31').median()
+            current_sar = ee.ImageCollection('COPERNICUS/S1_GRD').filterBounds(kigali_aoi).sort('system:time_start', False).first()
+            sar_alerts = current_sar.select('VV').subtract(sar_baseline.select('VV')).gt(5)
+            
+            # NDVI Optical Check
+            ndvi = latest_img.normalizedDifference(['B8', 'B4'])
+            ndvi_alerts = ndvi.lt(0.3)
+            
+            # Fused Result
+            final_alerts = sar_alerts.And(ndvi_alerts).selfMask()
 
-    # --- THE EXPORT (REPAIRED FOR QUOTA ERROR) ---
-    print("Submitting Fusion Task...")
-    task = ee.batch.Export.image.toDrive(
-        image=cleaned_alerts,
-        description=f'Alert_Map_{datetime.now().strftime("%Y%m%d")}',
-        folder='Kigali_Monitoring_Data', # ENSURE THIS FOLDER IS SHARED AS 'EDITOR'
-        scale=10,
-        region=kigali_aoi.geometry().bounds(),
-        fileFormat='GeoTIFF'
-    )
-    
-    try:
-        task.start()
-        print(f"Fusion Task Started: {task.id}")
-    except Exception as e:
-        print(f"Export Failed: {e}. Check folder sharing permissions.")
+            # --- EXPORT TO ASSET (Bypasses Drive Quota Error) ---
+            # Using 'toAsset' ensures the file is saved within GEE itself
+            task_name = f"Alert_{now.strftime('%Y%m%d_%H%M')}"
+            asset_path = f"projects/kigali-sync-final/assets/{task_name}"
+            
+            task = ee.batch.Export.image.toAsset(
+                image=final_alerts,
+                description=task_name,
+                assetId=asset_path,
+                scale=10,
+                region=kigali_aoi.geometry().bounds()
+            )
+            task.start()
+            print(f"Task Started! View it in GEE Assets: {asset_path}")
+
+            # 4. Update the Delta File
+            with open(state_file, 'w') as f:
+                f.write(current_id)
+            print("Successfully updated last_image_id.txt locally.")
+        else:
+            print("No new imagery found since last update.")
+    else:
+        print("Failed to find any imagery for the current period.")
 
 if __name__ == "__main__":
     run_monitoring()
