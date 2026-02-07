@@ -19,7 +19,7 @@ def run_monitoring():
 
     # 2. Assets - REPLACE THE ID BELOW WITH YOUR NEW SMALL SHAPEFILE ID
     # Example: "projects/kigali-sync-final/assets/Kigali_Small_Zone"
-    asset_id = "projects/kigali-sync-final/assets/KIgali_City" 
+    asset_id = "projects/kigali-sync-final/assets/Gahanga_Sector" 
     
     try:
         kigali_aoi = ee.FeatureCollection(asset_id)
