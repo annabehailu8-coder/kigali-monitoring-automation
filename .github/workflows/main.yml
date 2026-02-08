@@ -23,11 +23,15 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          pip install earthengine-api google-auth
+          # Added 'requests' here for Telegram communication
+          pip install earthengine-api google-auth requests
 
       - name: Run Monitoring Script
         env:
           GEE_JSON_KEY: ${{ secrets.GEE_JSON_KEY }}
+          # Passing Telegram secrets from GitHub to the Python environment
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python kigali_sync.py
 
       - name: Commit and push changes
