@@ -1,11 +1,11 @@
 import ee
 import os
 import json
-import requests  # Required for Telegram Webhook
+import requests
 from datetime import datetime, timedelta
 
-def send_telegram_alert(score, task_name):
-    """Sends a notification to Telegram if a threshold is met."""
+def send_telegram_alert(score, task_name, alert_image, region):
+    """Sends a notification with a visual map thumbnail to Telegram."""
     token = os.environ.get('TELEGRAM_TOKEN')
     chat_id = os.environ.get('TELEGRAM_CHAT_ID')
     
@@ -13,18 +13,54 @@ def send_telegram_alert(score, task_name):
         print("⚠️ Telegram credentials missing in GitHub Secrets.")
         return
 
-    message = (
-        f"🚨 *Kigali Construction Alert*\n"
-        f"New construction detected in zone!\n"
-        f"Detected Area (Pixels): `{score}`\n"
-        f"GEE Task: `{task_name}`\n"
-        f"Status: Exporting to Assets..."
-    )
+    # 1. Generate a Thumbnail URL from GEE
+    # We color the alert pixels RED for the photo
+    vis_params = {
+        'min': 0, 
+        'max': 1, 
+        'palette': ['white', 'red'],
+        'dimensions': 600,
+        'format': 'png'
+    }
     
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
     try:
-        requests.post(url, data={'chat_id': chat_id, 'text': message, 'parse_mode': 'Markdown'})
-        print("📱 Telegram notification sent.")
+        thumb_url = alert_image.visualize(**vis_params).getThumbURL({
+            'region': region,
+            'dimensions': 600,
+            'format': 'png'
+        })
+    except Exception as e:
+        print(f"Thumbnail Generation Error: {e}")
+        thumb_url = None
+
+    # 2. Prepare the Message
+    caption = (
+        f"🚨 *Kigali Construction Alert*\n"
+        f"New construction detected!\n"
+        f"Detected Area (Pixels): `{score}`\n"
+        f"GEE Task: `{task_name}`"
+    )
+
+    # 3. Send via sendPhoto if URL exists, else fallback to sendMessage
+    try:
+        if thumb_url:
+            url = f"https://api.telegram.org/bot{token}/sendPhoto"
+            payload = {
+                'chat_id': chat_id,
+                'photo': thumb_url,
+                'caption': caption,
+                'parse_mode': 'Markdown'
+            }
+        else:
+            url = f"https://api.telegram.org/bot{token}/sendMessage"
+            payload = {
+                'chat_id': chat_id,
+                'text': caption,
+                'parse_mode': 'Markdown'
+            }
+        
+        requests.post(url, data=payload)
+        print("📱 Telegram notification with photo sent.")
     except Exception as e:
         print(f"Webhook Error: {e}")
 
@@ -87,8 +123,7 @@ def run_monitoring():
             sar_alerts = current_sar.select('VV').subtract(sar_baseline.select('VV')).gt(6)
             cleaned_alerts = sar_alerts.focal_mode(radius=1, kernelType='circle', iterations=1).selfMask()
 
-            # --- NEW: Calculate Change Score ---
-            # Sum the pixels to see if the threshold is met
+            # Calculate Change Score
             stats = cleaned_alerts.reduceRegion(
                 reducer=ee.Reducer.count(),
                 geometry=region,
@@ -98,13 +133,13 @@ def run_monitoring():
             change_score = stats.get('VV').getInfo() or 0
             print(f"Change Score (Pixel Count): {change_score}")
 
-            # 5. Threshold Trigger (Change Score > 0 means at least one building detected)
-            if change_score > 5:  # Trigger if more than 5 pixels change (prevents false positives)
+            # 5. Threshold Trigger
+            if change_score > 5:
                 task_timestamp = now.strftime('%Y%m%d_%H%M')
                 task_name = f"Alert_Kigali_{task_timestamp}"
                 
-                # Send Webhook First
-                send_telegram_alert(change_score, task_name)
+                # Modified Alert Call: Now passing the image and region for the photo
+                send_telegram_alert(change_score, task_name, cleaned_alerts.unmask(0), region)
 
                 # Export Task
                 task = ee.batch.Export.image.toAsset(
@@ -128,4 +163,3 @@ def run_monitoring():
 
 if __name__ == "__main__":
     run_monitoring()
-    
