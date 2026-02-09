@@ -4,7 +4,7 @@ import json
 import requests
 from datetime import datetime, timedelta
 
-def send_telegram_alert(score, task_name, alert_image, background_image, region):
+def send_telegram_alert(score, task_name, alert_image, background_image, region, time_span):
     """Sends a photo notification (Radar on Satellite) to the Telegram Group."""
     token = os.environ.get('TELEGRAM_TOKEN')
     chat_id = os.environ.get('TELEGRAM_CHAT_ID')
@@ -14,10 +14,12 @@ def send_telegram_alert(score, task_name, alert_image, background_image, region)
         return
 
     # 1. Create a visual composite: Radar Alerts (Red) on top of Satellite (RGB)
-    # Sentinel-2 True Color background
-    bg_vis = background_image.visualize(bands=['B4', 'B3', 'B2'], min=0, max=3000)
-    # Radar Alerts foreground in solid Red
-    fg_vis = alert_image.visualize(palette=['red'], min=1, max=1)
+    # Brightened background for contrast
+    bg_vis = background_image.visualize(bands=['B4', 'B3', 'B2'], min=0, max=4000)
+    
+    # Use hex '#FF0000' and selfMask() to ensure pixels are bright RED and background is clear
+    fg_vis = alert_image.selfMask().visualize(palette=['#FF0000'], min=1, max=1)
+    
     # Blend the two images
     combined_vis = bg_vis.blend(fg_vis)
     
@@ -29,10 +31,10 @@ def send_telegram_alert(score, task_name, alert_image, background_image, region)
             'format': 'png'
         })
         
-        # 2. Prepare the Telegram payload
+        # 2. Prepare the Telegram payload with Activity Period
         caption = (
             f"🚨 *Kigali Construction Alert*\n"
-            f"Significant change detected in Kigali!\n"
+            f"Activity Period: `{time_span}`\n"
             f"Detected Area (Pixels): `{score}`\n"
             f"GEE Task: `{task_name}`"
         )
@@ -46,7 +48,7 @@ def send_telegram_alert(score, task_name, alert_image, background_image, region)
         }
         
         requests.post(url, data=payload)
-        print("📱 Telegram photo alert sent successfully.")
+        print(f"📱 Telegram photo alert sent for period: {time_span}")
         
     except Exception as e:
         print(f"Photo Alert Error: {e}")
@@ -54,7 +56,7 @@ def send_telegram_alert(score, task_name, alert_image, background_image, region)
         fallback_url = f"https://api.telegram.org/bot{token}/sendMessage"
         requests.post(fallback_url, data={
             'chat_id': chat_id, 
-            'text': f"🚨 Alert: {score} pixels detected. (Map generation failed).", 
+            'text': f"🚨 Alert: {score} pixels detected in {time_span}. (Map generation failed).", 
             'parse_mode': 'Markdown'
         })
 
@@ -104,14 +106,21 @@ def run_monitoring():
         if current_id != last_id:
             print(f"New Image Found: {current_id}. Processing Radar Fusion...")
 
+            # --- DYNAMIC TIME SPAN LOGIC ---
+            baseline_start = '2024-01-01'
+            
             # Radar (S1) Analysis
             sar_baseline = ee.ImageCollection('COPERNICUS/S1_GRD') \
                              .filterBounds(region) \
-                             .filterDate('2024-01-01', '2024-06-01').median()
+                             .filterDate(baseline_start, '2024-06-01').median()
             
             current_sar = ee.ImageCollection('COPERNICUS/S1_GRD') \
                             .filterBounds(region) \
                             .sort('system:time_start', False).first()
+            
+            # Extract current radar date for the notification
+            current_date = ee.Date(current_sar.get('system:time_start')).format('YYYY-MM-DD').getInfo()
+            time_span_str = f"{baseline_start} to {current_date}"
             
             # Identify 6dB+ increases
             sar_alerts = current_sar.select('VV').subtract(sar_baseline.select('VV')).gt(6)
@@ -132,8 +141,8 @@ def run_monitoring():
                 task_timestamp = now.strftime('%Y%m%d_%H%M')
                 task_name = f"Alert_Kigali_{task_timestamp}"
                 
-                # SENDS THE PHOTO ALERT: Uses cleaned_alerts for red dots and latest_img for background
-                send_telegram_alert(change_score, task_name, cleaned_alerts, latest_img, region)
+                # SENDS THE PHOTO ALERT with the Time Span parameter
+                send_telegram_alert(change_score, task_name, cleaned_alerts, latest_img, region, time_span_str)
 
                 # Export Task
                 task = ee.batch.Export.image.toAsset(
