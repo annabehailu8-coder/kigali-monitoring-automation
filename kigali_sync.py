@@ -4,8 +4,8 @@ import json
 import requests
 from datetime import datetime, timedelta
 
-def send_telegram_alert(score, task_name, alert_image, region):
-    """Sends a notification with a visual map thumbnail to Telegram."""
+def send_telegram_alert(score, task_name, alert_image, background_image, region):
+    """Sends a photo notification (Radar on Satellite) to the Telegram Group."""
     token = os.environ.get('TELEGRAM_TOKEN')
     chat_id = os.environ.get('TELEGRAM_CHAT_ID')
     
@@ -13,56 +13,50 @@ def send_telegram_alert(score, task_name, alert_image, region):
         print("⚠️ Telegram credentials missing in GitHub Secrets.")
         return
 
-    # 1. Generate a Thumbnail URL from GEE
-    # We color the alert pixels RED for the photo
-    vis_params = {
-        'min': 0, 
-        'max': 1, 
-        'palette': ['white', 'red'],
-        'dimensions': 600,
-        'format': 'png'
-    }
+    # 1. Create a visual composite: Radar Alerts (Red) on top of Satellite (RGB)
+    # Sentinel-2 True Color background
+    bg_vis = background_image.visualize(bands=['B4', 'B3', 'B2'], min=0, max=3000)
+    # Radar Alerts foreground in solid Red
+    fg_vis = alert_image.visualize(palette=['red'], min=1, max=1)
+    # Blend the two images
+    combined_vis = bg_vis.blend(fg_vis)
     
     try:
-        thumb_url = alert_image.visualize(**vis_params).getThumbURL({
+        # Generate a temporary public URL for the image from GEE
+        thumb_url = combined_vis.getThumbURL({
             'region': region,
-            'dimensions': 600,
+            'dimensions': 800,
             'format': 'png'
         })
-    except Exception as e:
-        print(f"Thumbnail Generation Error: {e}")
-        thumb_url = None
-
-    # 2. Prepare the Message
-    caption = (
-        f"🚨 *Kigali Construction Alert*\n"
-        f"New construction detected!\n"
-        f"Detected Area (Pixels): `{score}`\n"
-        f"GEE Task: `{task_name}`"
-    )
-
-    # 3. Send via sendPhoto if URL exists, else fallback to sendMessage
-    try:
-        if thumb_url:
-            url = f"https://api.telegram.org/bot{token}/sendPhoto"
-            payload = {
-                'chat_id': chat_id,
-                'photo': thumb_url,
-                'caption': caption,
-                'parse_mode': 'Markdown'
-            }
-        else:
-            url = f"https://api.telegram.org/bot{token}/sendMessage"
-            payload = {
-                'chat_id': chat_id,
-                'text': caption,
-                'parse_mode': 'Markdown'
-            }
+        
+        # 2. Prepare the Telegram payload
+        caption = (
+            f"🚨 *Kigali Construction Alert*\n"
+            f"Significant change detected in Gahanga!\n"
+            f"Detected Area (Pixels): `{score}`\n"
+            f"GEE Task: `{task_name}`"
+        )
+        
+        url = f"https://api.telegram.org/bot{token}/sendPhoto"
+        payload = {
+            'chat_id': chat_id, 
+            'photo': thumb_url, 
+            'caption': caption, 
+            'parse_mode': 'Markdown'
+        }
         
         requests.post(url, data=payload)
-        print("📱 Telegram notification with photo sent.")
+        print("📱 Telegram photo alert sent successfully.")
+        
     except Exception as e:
-        print(f"Webhook Error: {e}")
+        print(f"Photo Alert Error: {e}")
+        # Fallback to simple text if thumbnail generation fails
+        fallback_url = f"https://api.telegram.org/bot{token}/sendMessage"
+        requests.post(fallback_url, data={
+            'chat_id': chat_id, 
+            'text': f"🚨 Alert: {score} pixels detected. (Map generation failed).", 
+            'parse_mode': 'Markdown'
+        })
 
 def run_monitoring():
     # 1. Authentication
@@ -138,8 +132,8 @@ def run_monitoring():
                 task_timestamp = now.strftime('%Y%m%d_%H%M')
                 task_name = f"Alert_Kigali_{task_timestamp}"
                 
-                # Modified Alert Call: Now passing the image and region for the photo
-                send_telegram_alert(change_score, task_name, cleaned_alerts.unmask(0), region)
+                # SENDS THE PHOTO ALERT: Uses cleaned_alerts for red dots and latest_img for background
+                send_telegram_alert(change_score, task_name, cleaned_alerts, latest_img, region)
 
                 # Export Task
                 task = ee.batch.Export.image.toAsset(
