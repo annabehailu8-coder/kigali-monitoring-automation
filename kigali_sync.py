@@ -5,7 +5,7 @@ import requests
 from datetime import datetime, timedelta
 
 def send_telegram_alert(score, task_name, alert_image, background_image, region):
-    """Sends a photo notification (Radar on Satellite) to the Telegram Group."""
+    """Sends a photo notification with vibrant RED pixels and a dynamic Time Span."""
     token = os.environ.get('TELEGRAM_TOKEN')
     chat_id = os.environ.get('TELEGRAM_CHAT_ID')
     
@@ -13,61 +13,52 @@ def send_telegram_alert(score, task_name, alert_image, background_image, region)
         print("⚠️ Telegram credentials missing in GitHub Secrets.")
         return
 
-    # --- NEW: INTERNAL TIME SPAN CALCULATION (NO ALTERATION TO FUNCTION CALL) ---
+    # 1. DYNAMIC TIME SPAN CALCULATION
     try:
-        # Get the date from the background image metadata
+        # Get the date of the satellite background image
         img_date = ee.Date(background_image.get('system:time_start')).format('YYYY-MM-DD').getInfo()
-        time_span = f"2024-01-01 to {img_date}"
+        # Since we use a sliding window, the span is roughly the last 6-12 days
+        time_span = f"Detection Period: Last 6-12 days (ending {img_date})"
     except:
-        time_span = "Recent Detection"
+        time_span = "Recent Activity"
 
-    # 1. Create a visual composite: Radar Alerts (Red) on top of Satellite (RGB)
-    # Sentinel-2 True Color background
-    bg_vis = background_image.visualize(bands=['B4', 'B3', 'B2'], min=0, max=3000)
+    # 2. CREATE THE VISUAL (RED ON SATELLITE)
+    # Background: Brightened Sentinel-2
+    bg_vis = background_image.visualize(bands=['B4', 'B3', 'B2'], min=0, max=4000)
     
-    # FIX: Use selfMask() and HEX Red to prevent black pixels
+    # Foreground: Bright RED (#FF0000). selfMask() removes the black background.
     fg_vis = alert_image.selfMask().visualize(palette=['#FF0000'], min=1, max=1)
     
-    # Blend the two images
+    # Overlay the red pixels on top of the satellite map
     combined_vis = bg_vis.blend(fg_vis)
     
     try:
-        # Generate a temporary public URL for the image from GEE
         thumb_url = combined_vis.getThumbURL({
             'region': region,
-            'dimensions': 800,
+            'dimensions': 1000,
             'format': 'png'
         })
         
-        # 2. Prepare the Telegram payload (Now including Time Span)
         caption = (
             f"🚨 *Kigali Construction Alert*\n"
-            f"Activity Period: `{time_span}`\n"
-            f"Significant change detected in Kigali!\n"
-            f"Detected Area (Pixels): `{score}`\n"
-            f"GEE Task: `{task_name}`"
+            f"📅 `{time_span}`\n"
+            f"🏗️ New Changes: `{score}` pixels\n"
+            f"📂 Asset: `{task_name}`"
         )
         
         url = f"https://api.telegram.org/bot{token}/sendPhoto"
-        payload = {
+        requests.post(url, data={
             'chat_id': chat_id, 
             'photo': thumb_url, 
             'caption': caption, 
             'parse_mode': 'Markdown'
-        }
-        
-        requests.post(url, data=payload)
-        print(f"📱 Telegram photo alert sent successfully for {time_span}.")
+        })
+        print(f"📱 Red Pixel alert sent for {img_date}.")
         
     except Exception as e:
-        print(f"Photo Alert Error: {e}")
-        # Fallback to simple text if thumbnail generation fails
-        fallback_url = f"https://api.telegram.org/bot{token}/sendMessage"
-        requests.post(fallback_url, data={
-            'chat_id': chat_id, 
-            'text': f"🚨 Alert: {score} pixels detected. (Map generation failed).", 
-            'parse_mode': 'Markdown'
-        })
+        print(f"Photo Error: {e}")
+        requests.post(f"https://api.telegram.org/bot{token}/sendMessage", 
+                      data={'chat_id': chat_id, 'text': f"🚨 Alert: {score} new pixels detected.", 'parse_mode': 'Markdown'})
 
 def run_monitoring():
     # 1. Authentication
@@ -83,9 +74,8 @@ def run_monitoring():
         print(f"Auth Error: {e}")
         return
 
-    # 2. Assets
+    # 2. Area of Interest
     asset_id = "projects/kigali-sync-final/assets/kigali_boundary_custom" 
-    
     try:
         kigali_aoi = ee.FeatureCollection(asset_id)
         region = kigali_aoi.geometry().bounds()
@@ -93,14 +83,11 @@ def run_monitoring():
         print(f"Asset Loading Error: {e}")
         return
 
-    # 3. Delta Tracking
+    # 3. Delta Tracking (To avoid processing the same image twice)
     state_file = 'last_image_id.txt'
-    last_id = ""
-    if os.path.exists(state_file):
-        with open(state_file, 'r') as f:
-            last_id = f.read().strip()
+    last_id = open(state_file, 'r').read().strip() if os.path.exists(state_file) else ""
 
-    # 4. Multi-Sensor Intelligence Logic
+    # 4. Satellite Imagery Search
     now = datetime.now()
     s2_col = ee.ImageCollection("COPERNICUS/S2_HARMONIZED") \
                .filterBounds(region) \
@@ -113,22 +100,24 @@ def run_monitoring():
         current_id = latest_img.id().getInfo()
         
         if current_id != last_id:
-            print(f"New Image Found: {current_id}. Processing Radar Fusion...")
+            print(f"New Image Found: {current_id}. Analyzing changes...")
 
-            # Radar (S1) Analysis
-            sar_baseline = ee.ImageCollection('COPERNICUS/S1_GRD') \
-                             .filterBounds(region) \
-                             .filterDate('2024-01-01', '2024-06-01').median()
+            # --- SLIDING WINDOW RADAR ANALYSIS ---
+            # Instead of 2024, we get the two most recent radar passes
+            sar_col = ee.ImageCollection('COPERNICUS/S1_GRD') \
+                        .filterBounds(region) \
+                        .sort('system:time_start', False)
             
-            current_sar = ee.ImageCollection('COPERNICUS/S1_GRD') \
-                            .filterBounds(region) \
-                            .sort('system:time_start', False).first()
+            # current_sar is the most recent (T)
+            current_sar = ee.Image(sar_col.toList(2).get(0))
+            # sar_baseline is the one before it (T-1)
+            sar_baseline = ee.Image(sar_col.toList(2).get(1))
             
-            # Identify 6dB+ increases
+            # Detect pixels that got 6dB brighter since the LAST pass
             sar_alerts = current_sar.select('VV').subtract(sar_baseline.select('VV')).gt(6)
             cleaned_alerts = sar_alerts.focal_mode(radius=1, kernelType='circle', iterations=1).selfMask()
 
-            # Calculate Change Score
+            # 5. Score Calculation
             stats = cleaned_alerts.reduceRegion(
                 reducer=ee.Reducer.count(),
                 geometry=region,
@@ -136,35 +125,9 @@ def run_monitoring():
                 maxPixels=1e8
             )
             change_score = stats.get('VV').getInfo() or 0
-            print(f"Change Score (Pixel Count): {change_score}")
+            print(f"New Change Score: {change_score}")
 
-            # 5. Threshold Trigger
+            # 6. Notification & Export
             if change_score > 5:
-                task_timestamp = now.strftime('%Y%m%d_%H%M')
-                task_name = f"Alert_Kigali_{task_timestamp}"
-                
-                # NO CHANGES TO THIS CALL: Matches your successful script exactly
+                task_name = f"Alert_Kigali_{now.strftime('%Y%m%d_%H%M')}"
                 send_telegram_alert(change_score, task_name, cleaned_alerts, latest_img, region)
-
-                # Export Task
-                task = ee.batch.Export.image.toAsset(
-                    image=cleaned_alerts.byte().clip(kigali_aoi),
-                    description=task_name,
-                    assetId=f"projects/kigali-sync-final/assets/{task_name}",
-                    scale=20,
-                    region=region,
-                    maxPixels=1e9
-                )
-                task.start()
-                print(f"SUCCESS: Task {task_name} started (BLUE).")
-
-            # 6. Update GitHub Delta
-            with open(state_file, 'w') as f:
-                f.write(current_id)
-        else:
-            print("No new imagery detected. System idle.")
-    else:
-        print("Cloud Search: No clear images found in the last 30 days.")
-
-if __name__ == "__main__":
-    run_monitoring()
