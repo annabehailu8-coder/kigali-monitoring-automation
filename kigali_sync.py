@@ -32,7 +32,7 @@ def send_telegram_alert(score, task_name, alert_image, background_image, region)
         # 2. Prepare the Telegram payload
         caption = (
             f"🚨 *Kigali Construction Alert*\n"
-            f"Significant change detected in Gahanga!\n"
+            f"Significant change detected in Kigali!\n"
             f"Detected Area (Pixels): `{score}`\n"
             f"GEE Task: `{task_name}`"
         )
