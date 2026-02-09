@@ -1,14 +1,13 @@
-name: Kigali GEE Automation
+name: Kigali GEE Automation - DEBUG VERSION
 
 on:
   schedule:
-    - cron: '0 0 */5 * *'  # Runs every 5 days at midnight
-  workflow_dispatch:      # Allows you to click the 'Run' button manually
+    - cron: '0 0 */5 * *'
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    # Added Permissions to allow the script to save the 'last_image_id.txt'
     permissions:
       contents: write 
       
@@ -16,20 +15,24 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v3
 
+      - name: Pre-Flight Secret Check
+        run: |
+          echo "🔍 Checking Secrets..."
+          if [ -z "${{ secrets.GEE_JSON_KEY }}" ]; then echo "❌ GEE_JSON_KEY is MISSING"; else echo "✅ GEE_JSON_KEY is present"; fi
+          if [ -z "${{ secrets.TELEGRAM_TOKEN }}" ]; then echo "❌ TELEGRAM_TOKEN is MISSING"; else echo "✅ TELEGRAM_TOKEN is present"; fi
+          if [ -z "${{ secrets.TELEGRAM_CHAT_ID }}" ]; then echo "❌ TELEGRAM_CHAT_ID is MISSING"; else echo "✅ TELEGRAM_CHAT_ID is present"; fi
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.9'
+          python-version: '3.11' # Upgraded to 3.11 to fix the warning in your log
 
       - name: Install Dependencies
-        run: |
-          # Added 'requests' here for Telegram communication
-          pip install earthengine-api google-auth requests
+        run: pip install earthengine-api google-auth requests
 
       - name: Run Monitoring Script
         env:
           GEE_JSON_KEY: ${{ secrets.GEE_JSON_KEY }}
-          # Passing Telegram secrets from GitHub to the Python environment
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python kigali_sync.py
@@ -39,5 +42,5 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add last_image_id.txt
-          git commit -m "Update last image ID [skip ci]" || echo "No changes to commit"
-          git push
+          git commit -m "Update last image ID: $(date)" || echo "No changes to commit"
+          git push origin main
