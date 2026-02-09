@@ -1,4 +1,4 @@
-name: Kigali GEE Automation - DEBUG VERSION
+name: Kigali GEE Automation
 
 on:
   schedule:
