@@ -9,39 +9,43 @@ import os
 import ee
 
 def send_telegram_alert(score, task_name, alert_image, background_image, region):
-    """Senior Dev Fix: Corrects the Red Color and handles the Chat Migration."""
-    # IMPORTANT: Ensure your GitHub Secret TELEGRAM_CHAT_ID is updated to -1003689205228
+    """Senior Dev Fix: Corrects Red Color and handles Supergroup Migration."""
     token = os.environ.get('TELEGRAM_TOKEN')
-    chat_id = os.environ.get('TELEGRAM_CHAT_ID')
     
-    if not token or not chat_id:
-        print("⚠️ Telegram credentials missing in GitHub Secrets.")
+    # NEW ID: Use the one from the migration error
+    chat_id = "-1003689205228" 
+    
+    if not token:
+        print("⚠️ TELEGRAM_TOKEN missing in GitHub Secrets.")
         return
 
-    # 1. VISUALIZATION FIX: Use a proper 0-1 range to force the Red Palette
-    # Background Sentinel-2 (RGB)
-    bg_vis = background_image.visualize(bands=['B4', 'B3', 'B2'], min=0, max=3000)
+    # 1. VISUALIZATION FIX: Force Red Overlays
+    # Sentinel-2 Background
+    bg_vis = background_image.visualize(bands=['B4', 'B3', 'B2'], min=0, max=3500)
     
-    # Foreground Alert (Red)
-    # Using min=0, max=1 with a two-color palette ensures GEE renders '1' as Red
-    fg_vis = alert_image.visualize(palette=['#000000', '#FF0000'], min=0, max=1).updateMask(alert_image)
+    # Alerts: Use a 0 to 1 range with a black-to-red palette, then MASK the black.
+    # This forces GEE to treat '1' as pure Red (#FF0000).
+    fg_vis = alert_image.visualize(
+        palette=['#000000', '#FF0000'], 
+        min=0, 
+        max=1
+    ).updateMask(alert_image)
     
-    # Blend: This overlays the red pixels onto the satellite image
+    # Blend: Overlay the red pixels onto the satellite background
     combined_vis = bg_vis.blend(fg_vis)
     
     try:
-        # Generate the URL
+        # Generate URL with a fake extension to help Telegram parse it
         thumb_url = combined_vis.getThumbURL({
             'region': region,
             'dimensions': 1024,
             'format': 'png'
-        })
+        }) + "&extension=.png"
         
         caption = (
             f"🚨 *Kigali Construction Alert*\n"
-            f"Significant change detected!\n"
-            f"Detected Area (Pixels): `{score}`\n"
-            f"GEE Task: `{task_name}`"
+            f"Pixels Detected: `{score}`\n"
+            f"Asset Name: `{task_name}`"
         )
         
         url = f"https://api.telegram.org/bot{token}/sendPhoto"
@@ -54,14 +58,13 @@ def send_telegram_alert(score, task_name, alert_image, background_image, region)
         
         response = requests.post(url, data=payload)
         
-        # Log the specific API response to catch future migrations
-        if response.status_code != 200:
-            print(f"❌ Telegram Error {response.status_code}: {response.text}")
+        if response.status_code == 200:
+            print("✅ Notification sent successfully to the Supergroup!")
         else:
-            print("✅ Telegram notification sent successfully!")
-        
+            print(f"❌ Telegram Error: {response.text}")
+            
     except Exception as e:
-        print(f"Photo Alert Error: {e}")
+        print(f"⚠️ Script Error: {e}")
 
 def run_monitoring():
     # 1. Authentication
