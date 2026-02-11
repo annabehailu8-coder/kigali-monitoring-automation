@@ -12,7 +12,7 @@ def send_telegram_alert(score, task_name, region):
     try:
         center = region.centroid().getInfo()['coordinates']
         google_maps_link = f"https://www.google.com/maps/search/?api=1&query={center[1]},{center[0]}"
-        gee_app_link = "YOUR_GEE_APP_URL_HERE" # You will get this in Part 2
+        gee_app_link = "https://kigali-sync-final.projects.earthengine.app/view/kigali-monitor" # You will get this in Part 2
 
         caption = (
             f"🚨 *Kigali Construction Alert*\n"
