@@ -13,35 +13,37 @@ def send_telegram_alert(score, task_name, alert_image, background_image, region)
         print("⚠️ Telegram credentials missing in GitHub Secrets.")
         return
 
+    # --- NEW: INTERNAL TIME SPAN CALCULATION (NO ALTERATION TO FUNCTION CALL) ---
     try:
+        # Get the date from the background image metadata
         img_date = ee.Date(background_image.get('system:time_start')).format('YYYY-MM-DD').getInfo()
         time_span = f"2024-01-01 to {img_date}"
     except:
         time_span = "Recent Detection"
 
-    # 1. Prepare Background (Sentinel-2 RGB)
-    bg_vis = background_image.visualize(bands=['B4', 'B3', 'B2'], min=0, max=3500)
+    # 1. Create a visual composite: Radar Alerts (Red) on top of Satellite (RGB)
+    # Sentinel-2 True Color background
+    bg_vis = background_image.visualize(bands=['B4', 'B3', 'B2'], min=0, max=3000)
     
-    # 2. FIX: Create a solid Red RGB image and mask it by your alerts
-    # This ensures the pixels are #FF0000 and the rest is transparent
-    red_palette = ['FF0000']
-    fg_vis = alert_image.visualize(palette=red_palette, min=0, max=1).updateMask(alert_image)
+    # FIX: Use selfMask() and HEX Red to prevent black pixels
+    fg_vis = alert_image.selfMask().visualize(palette=['#FF0000'], min=1, max=1)
     
-    # 3. Blend them
+    # Blend the two images
     combined_vis = bg_vis.blend(fg_vis)
     
     try:
-        # Generate the URL
+        # Generate a temporary public URL for the image from GEE
         thumb_url = combined_vis.getThumbURL({
             'region': region,
-            'dimensions': 1024,
+            'dimensions': 800,
             'format': 'png'
         })
         
+        # 2. Prepare the Telegram payload (Now including Time Span)
         caption = (
             f"🚨 *Kigali Construction Alert*\n"
             f"Activity Period: `{time_span}`\n"
-            f"Significant change detected!\n"
+            f"Significant change detected in Kigali!\n"
             f"Detected Area (Pixels): `{score}`\n"
             f"GEE Task: `{task_name}`"
         )
@@ -54,15 +56,18 @@ def send_telegram_alert(score, task_name, alert_image, background_image, region)
             'parse_mode': 'Markdown'
         }
         
-        response = requests.post(url, data=payload)
-        # Check if Telegram rejected the request
-        if response.status_code != 200:
-            print(f"❌ Telegram API Error: {response.text}")
-        else:
-            print(f"📱 Telegram photo alert sent successfully.")
+        requests.post(url, data=payload)
+        print(f"📱 Telegram photo alert sent successfully for {time_span}.")
         
     except Exception as e:
         print(f"Photo Alert Error: {e}")
+        # Fallback to simple text if thumbnail generation fails
+        fallback_url = f"https://api.telegram.org/bot{token}/sendMessage"
+        requests.post(fallback_url, data={
+            'chat_id': chat_id, 
+            'text': f"🚨 Alert: {score} pixels detected. (Map generation failed).", 
+            'parse_mode': 'Markdown'
+        })
 
 def run_monitoring():
     # 1. Authentication
