@@ -19,20 +19,19 @@ def send_telegram_alert(score, task_name, alert_image, background_image, region)
     except:
         time_span = "Recent Detection"
 
-    # 1. Background: Sentinel-2 RGB
-    # We use .unitScale or specific min/max to ensure the background isn't too dark/bright
+    # 1. Prepare Background (Sentinel-2 RGB)
     bg_vis = background_image.visualize(bands=['B4', 'B3', 'B2'], min=0, max=3500)
     
-    # 2. Foreground: The Red Mask
-    # We create a constant Red image and mask it with your alerts
-    # This is more reliable than using palette on a single-band image for blending
-    red_mask = ee.Image.constant(255).visualize(palette=['FF0000']).updateMask(alert_image)
+    # 2. FIX: Create a solid Red RGB image and mask it by your alerts
+    # This ensures the pixels are #FF0000 and the rest is transparent
+    red_palette = ['FF0000']
+    fg_vis = alert_image.visualize(palette=red_palette, min=0, max=1).updateMask(alert_image)
     
-    # 3. Blend: This overlays the red_mask onto the background
-    combined_vis = bg_vis.blend(red_mask)
+    # 3. Blend them
+    combined_vis = bg_vis.blend(fg_vis)
     
     try:
-        # Higher dimensions (1024) often help with clarity on mobile
+        # Generate the URL
         thumb_url = combined_vis.getThumbURL({
             'region': region,
             'dimensions': 1024,
@@ -42,7 +41,7 @@ def send_telegram_alert(score, task_name, alert_image, background_image, region)
         caption = (
             f"🚨 *Kigali Construction Alert*\n"
             f"Activity Period: `{time_span}`\n"
-            f"Significant change detected in Kigali!\n"
+            f"Significant change detected!\n"
             f"Detected Area (Pixels): `{score}`\n"
             f"GEE Task: `{task_name}`"
         )
@@ -55,12 +54,15 @@ def send_telegram_alert(score, task_name, alert_image, background_image, region)
             'parse_mode': 'Markdown'
         }
         
-        requests.post(url, data=payload)
-        print(f"📱 Telegram photo alert sent successfully for {time_span}.")
+        response = requests.post(url, data=payload)
+        # Check if Telegram rejected the request
+        if response.status_code != 200:
+            print(f"❌ Telegram API Error: {response.text}")
+        else:
+            print(f"📱 Telegram photo alert sent successfully.")
         
     except Exception as e:
         print(f"Photo Alert Error: {e}")
-        # ... (keep your existing fallback logic)
 
 def run_monitoring():
     # 1. Authentication
