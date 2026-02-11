@@ -4,38 +4,42 @@ import json
 import requests
 from datetime import datetime, timedelta
 
-import requests
-import os
-import ee
-
 def send_telegram_alert(score, task_name, alert_image, background_image, region):
-    """Senior Dev Fix: Corrects Red Color and handles Supergroup Migration."""
+    """
+    Senior Fix: Ensures change detection pixels are RED and handles Telegram 
+    migration to Supergroups.
+    """
     token = os.environ.get('TELEGRAM_TOKEN')
+    # Update your GitHub Secret with ID: -1003689205228
+    chat_id = os.environ.get('TELEGRAM_CHAT_ID')
     
-    # NEW ID: Use the one from the migration error
-    chat_id = "-1003689205228" 
-    
-    if not token:
-        print("⚠️ TELEGRAM_TOKEN missing in GitHub Secrets.")
+    if not token or not chat_id:
+        print("⚠️ Telegram credentials missing in GitHub Secrets.")
         return
 
-    # 1. VISUALIZATION FIX: Force Red Overlays
-    # Sentinel-2 Background
-    bg_vis = background_image.visualize(bands=['B4', 'B3', 'B2'], min=0, max=3500)
+    try:
+        img_date = ee.Date(background_image.get('system:time_start')).format('YYYY-MM-DD').getInfo()
+        time_span = f"2024-01-01 to {img_date}"
+    except:
+        time_span = "Recent Detection"
+
+    # 1. VISUALIZATION FIX: Background (Sentinel-2 RGB)
+    bg_vis = background_image.visualize(bands=['B4', 'B3', 'B2'], min=0, max=3000)
     
-    # Alerts: Use a 0 to 1 range with a black-to-red palette, then MASK the black.
-    # This forces GEE to treat '1' as pure Red (#FF0000).
+    # 2. COLOR FIX: Create a 3-band RGB image for the mask.
+    # We use a 0-1 range with a black-to-red palette, then mask the zeros.
+    # This prevents GEE from defaulting '1' to grayscale/black during thumbnailing.
     fg_vis = alert_image.visualize(
         palette=['#000000', '#FF0000'], 
         min=0, 
         max=1
     ).updateMask(alert_image)
     
-    # Blend: Overlay the red pixels onto the satellite background
+    # 3. BLEND: This overlays the guaranteed RED pixels onto the background
     combined_vis = bg_vis.blend(fg_vis)
     
     try:
-        # Generate URL with a fake extension to help Telegram parse it
+        # TELEGRAM FIX: Append a dummy extension to help the bot recognize the file type
         thumb_url = combined_vis.getThumbURL({
             'region': region,
             'dimensions': 1024,
@@ -44,8 +48,9 @@ def send_telegram_alert(score, task_name, alert_image, background_image, region)
         
         caption = (
             f"🚨 *Kigali Construction Alert*\n"
-            f"Pixels Detected: `{score}`\n"
-            f"Asset Name: `{task_name}`"
+            f"Activity Period: `{time_span}`\n"
+            f"Detected Area (Pixels): `{score}`\n"
+            f"GEE Task: `{task_name}`"
         )
         
         url = f"https://api.telegram.org/bot{token}/sendPhoto"
@@ -59,12 +64,15 @@ def send_telegram_alert(score, task_name, alert_image, background_image, region)
         response = requests.post(url, data=payload)
         
         if response.status_code == 200:
-            print("✅ Notification sent successfully to the Supergroup!")
+            print(f"📱 Telegram alert sent successfully for {time_span}.")
         else:
+            # Catching the migration error found in logs
             print(f"❌ Telegram Error: {response.text}")
-            
+            if "migrate_to_chat_id" in response.text:
+                print("💡 ACTION REQUIRED: Update your TELEGRAM_CHAT_ID secret with the new ID in the error above.")
+        
     except Exception as e:
-        print(f"⚠️ Script Error: {e}")
+        print(f"Photo Alert Error: {e}")
 
 def run_monitoring():
     # 1. Authentication
@@ -80,9 +88,8 @@ def run_monitoring():
         print(f"Auth Error: {e}")
         return
 
-    # 2. Assets
+    # 2. Load Boundary Asset
     asset_id = "projects/kigali-sync-final/assets/kigali_boundary_custom" 
-    
     try:
         kigali_aoi = ee.FeatureCollection(asset_id)
         region = kigali_aoi.geometry().bounds()
@@ -90,14 +97,14 @@ def run_monitoring():
         print(f"Asset Loading Error: {e}")
         return
 
-    # 3. Delta Tracking
+    # 3. Delta Tracking (Last Processed Image)
     state_file = 'last_image_id.txt'
     last_id = ""
     if os.path.exists(state_file):
         with open(state_file, 'r') as f:
             last_id = f.read().strip()
 
-    # 4. Multi-Sensor Intelligence Logic
+    # 4. Sensor Logic: Sentinel-2 Cloud-Free Search
     now = datetime.now()
     s2_col = ee.ImageCollection("COPERNICUS/S2_HARMONIZED") \
                .filterBounds(region) \
@@ -109,10 +116,11 @@ def run_monitoring():
     if latest_img.getInfo():
         current_id = latest_img.id().getInfo()
         
+        # Only process if we have a brand new image
         if current_id != last_id:
-            print(f"New Image Found: {current_id}. Processing Radar Fusion...")
+            print(f"New Image Found: {current_id}. Running Radar Change Detection...")
 
-            # Radar (S1) Analysis
+            # 5. Radar (S1) Analysis
             sar_baseline = ee.ImageCollection('COPERNICUS/S1_GRD') \
                              .filterBounds(region) \
                              .filterDate('2024-01-01', '2024-06-01').median()
@@ -121,11 +129,11 @@ def run_monitoring():
                             .filterBounds(region) \
                             .sort('system:time_start', False).first()
             
-            # Identify 6dB+ increases
+            # Detect 6dB+ backscatter increase
             sar_alerts = current_sar.select('VV').subtract(sar_baseline.select('VV')).gt(6)
             cleaned_alerts = sar_alerts.focal_mode(radius=1, kernelType='circle', iterations=1).selfMask()
 
-            # Calculate Change Score
+            # Calculate Pixel Count
             stats = cleaned_alerts.reduceRegion(
                 reducer=ee.Reducer.count(),
                 geometry=region,
@@ -133,17 +141,17 @@ def run_monitoring():
                 maxPixels=1e8
             )
             change_score = stats.get('VV').getInfo() or 0
-            print(f"Change Score (Pixel Count): {change_score}")
+            print(f"Change Score: {change_score}")
 
-            # 5. Threshold Trigger
+            # 6. Threshold & Execution
             if change_score > 5:
                 task_timestamp = now.strftime('%Y%m%d_%H%M')
                 task_name = f"Alert_Kigali_{task_timestamp}"
                 
-                # NO CHANGES TO THIS CALL: Matches your successful script exactly
+                # Send the Alert
                 send_telegram_alert(change_score, task_name, cleaned_alerts, latest_img, region)
 
-                # Export Task
+                # Start Export Task to Asset
                 task = ee.batch.Export.image.toAsset(
                     image=cleaned_alerts.byte().clip(kigali_aoi),
                     description=task_name,
@@ -153,15 +161,15 @@ def run_monitoring():
                     maxPixels=1e9
                 )
                 task.start()
-                print(f"SUCCESS: Task {task_name} started (BLUE).")
+                print(f"SUCCESS: Export {task_name} started.")
 
-            # 6. Update GitHub Delta
+            # Update State File
             with open(state_file, 'w') as f:
                 f.write(current_id)
         else:
-            print("No new imagery detected. System idle.")
+            print("No new satellite imagery. System idle.")
     else:
-        print("Cloud Search: No clear images found in the last 30 days.")
+        print("No suitable Sentinel-2 imagery found in last 30 days.")
 
 if __name__ == "__main__":
     run_monitoring()
