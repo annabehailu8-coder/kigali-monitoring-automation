@@ -18,7 +18,7 @@ def send_telegram_alert(score, task_name, region):
         google_maps_link = f"https://www.google.com/maps/search/?api=1&query={center[1]},{center[0]}"
         
         # Replace this with your actual published GEE App URL
-        gee_app_link = "https://kigali-sync-final.ee_apps.io/Kigali-Monitor"
+        gee_app_link = "https://kigali-sync-final.projects.earthengine.app/view/kigali-monitor"
 
         caption = (
             f"🚨 *Kigali Construction Alert*\n"
