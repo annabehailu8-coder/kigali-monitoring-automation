@@ -118,7 +118,7 @@ def run_monitoring():
             # Radar (S1) Analysis
             sar_baseline = ee.ImageCollection('COPERNICUS/S1_GRD') \
                              .filterBounds(region) \
-                             .filterDate('2024-01-01', '2024-06-01').median()
+                             .filterDate('2025-01-01', '2025-06-01').median()
             
             current_sar = ee.ImageCollection('COPERNICUS/S1_GRD') \
                             .filterBounds(region) \
