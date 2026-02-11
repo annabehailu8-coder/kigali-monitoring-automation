@@ -17,7 +17,7 @@ def send_telegram_alert(score, task_name, alert_image, background_image, region)
     try:
         # Get the date from the background image metadata
         img_date = ee.Date(background_image.get('system:time_start')).format('YYYY-MM-DD').getInfo()
-        time_span = f"2024-01-01 to {img_date}"
+        time_span = f"2025-01-01 to {img_date}"
     except:
         time_span = "Recent Detection"
 
